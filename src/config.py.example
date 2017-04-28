@@ -1,0 +1,10 @@
+DRIVER_SALT = b"A proper salt"
+
+DATABASE = {
+    "main": {
+        'host': 'db_host',
+        'user': 'db_username',
+        'password': 'db_password',
+        'db': 'db_name'
+    }
+}
