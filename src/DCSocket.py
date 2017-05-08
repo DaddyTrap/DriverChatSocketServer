@@ -83,7 +83,6 @@ class BaseDCTCPSocket(socket.socket):
             if len(self.data) >= bytes_len:
                 ret += self.data[:bytes_len]
                 self.data = self.data[bytes_len:]
-                logging.warn(self.data)
                 break
             else:
                 ret += self.data
@@ -94,32 +93,32 @@ class BaseDCTCPSocket(socket.socket):
     def read_loop(self):
         while True:
             try:
-                self.data += self.recv(512)
+                self.data += self.recv(1024)
                 if len(self.data) == 0:
                     # 使Driver登出
                     self.driver = None
                     return
-
                 # parse data to messages
                 data_str = self.data.decode('utf-8', errors='ignore')
                 newline = data_str.find('\n')
                 while newline != -1:
                     isfile = False
                     msg_bytes_len = len(data_str[0:newline + 1].encode('utf-8'))
+                    logging.info(data_str[0:newline])
                     try:
                         msg = json.loads(data_str[0:newline])
                         self.data = self.data[msg_bytes_len:]
-                        logging.warn(msg)
+                        logging.info(msg)
                         if msg['type'] == 'file':
                             isfile = True
                             # read file
-                            logging.warn("Reading file")
-                            logging.warn("Data cut")
+                            logging.info("Reading file")
                             self.msg_queue.append(msg)
-                            logging.warn('msg queue: {}'.format(json.dumps([item if not isinstance(item, bytes) else 'bytes' for item in self.msg_queue])))
+                            logging.info('msg queue: {}'.format(json.dumps([item if not isinstance(item, bytes) else 'bytes' for item in self.msg_queue])))
                             msg = self.read_file(msg)
-                            logging.warn("File Read complete")
+                            logging.info("File Read complete")
                         self.msg_queue.append(msg)
+                        # logging.info(self.msg_queue)
                     except Exception as e:
                         logging.error(str(e))
                     finally:
@@ -132,7 +131,8 @@ class BaseDCTCPSocket(socket.socket):
                 self.handle_read()
             except Exception as e:
                 logging.warning(str(e))
-                traceback.print_last()
+                # traceback.print_last()
+                traceback.print_exc()
                 logging.warning("Received error in {}\tGoing to kill self.".format(json.dumps(self.driver, indent=4)))
                 self.driver = None
 
@@ -145,6 +145,10 @@ Only for class *DCTCPSocket*
 def auth(func):
     def wrapper(self, *args, **kwargs):
         if not self.driver:
+            send_json = kwargs['msg']
+            send_json['status'] = False
+            send_json['msg'] = 'sign in first'
+            self.send(min_json_dumps_to_bytes(send_json) + b'\n')
             return None
         return func(self, *args, **kwargs)
     return wrapper
@@ -172,25 +176,38 @@ class DCTCPSocket(BaseDCTCPSocket):
         self.log_request('room list')
         service = DCModelService(g_db_connection)
         rooms = service.ListRooms()
+        for i in rooms:
+            i['created_at'] = i['created_at'].strftime("%Y-%m-%d %H:%M:%S %z")
         send_json = {
             'type': 'sys',
             'detail': 'room list',
             'rooms': rooms
         }
+        logging.info(send_json)
         self.send(min_json_dumps_to_bytes(send_json) + b'\n')
 
 
     @auth
     def handle_detail_driver_list(self, msg):
         self.log_request('driver list')
+        service = DCModelService(g_db_connection)
         rid = int(msg['rid'])
         clients = self.server_socket.get_room_clients(rid)
+
         dids = [item.drivers['did'] for item in clients]
+        drivers = []
+        
+        for did in dids:
+            driver = service.SearchDriverWithDid(did)
+            del driver['username']
+            del driver['password']
+            del driver['created_at']
+            drivers.append(driver)
         send_json = {
             'type': 'sys',
             'detail': 'driver list',
             'rid': rid,
-            'dids': dids
+            'drivers': drivers
         }
         self.send(min_json_dumps_to_bytes(send_json) + b'\n')
 
@@ -203,7 +220,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             "type": 'sys',
             'detail': 'sign up',
             'status': res['status'],
-            'msg': '创建成功',
+            'msg': '创建成功' if res['status'] else '创建失败',
             'did': res['did']
         }
         self.send(min_json_dumps_to_bytes(send_json) + b'\n')
@@ -234,6 +251,7 @@ class DCTCPSocket(BaseDCTCPSocket):
                 'avatar': driver['avatar']
             }
             send_json['msg'] = '登录成功'
+            send_json['status'] = True
             self.send(min_json_dumps_to_bytes(send_json) + b'\n')
         else:
             # 登录失败
@@ -251,7 +269,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             'status': True
         }
         try:
-            rid = msg['rid']
+            rid = int(msg['rid'])
         except KeyError as e:
             logging.warn(str(e))
             logging.warn("key error when did({}) is requesting enter room".format(self.driver['did']))
@@ -292,12 +310,24 @@ class DCTCPSocket(BaseDCTCPSocket):
 
     @auth
     def handle_type_file(self, msg):
+        self.log_request('type file')
         data_bytes = None
         if msg['updown'] == 'up':
             data_bytes = self.msg_queue[0]
             del self.msg_queue[0]
         if msg['detail'] == 'driver avatar':
             self.handle_detail_driver_avatar(msg, data_bytes)
+        elif msg['detail'] == 'room avatar':
+            self.handle_detail_room_avatar(msg, data_bytes)
+        elif msg['detail'] == 'badge':
+            self.handle_detail_badge(msg)
+        elif msg['detail'] == 'chat':
+            self.handle_detail_chat(msg, data_bytes)
+
+        # data_bytes = self.msg_queue[0]
+        # del self.msg_queue[0]
+        # logging.info('msg queue: {}'.format(json.dumps([item if not isinstance(item, bytes) else 'bytes' for item in self.msg_queue])))
+        # self.send(min_json_dumps_to_bytes(msg) + b'\n' + data_bytes)
 
     def handle_detail_driver_avatar(self, msg, data_bytes=None):
         send_json = msg
@@ -309,6 +339,8 @@ class DCTCPSocket(BaseDCTCPSocket):
                 self.send(min_json_dumps_to_bytes(send_json) + b'\n')
                 return
             name = gen_filename(data_bytes[0:20] + str(time.clock()).encode('utf-8'))
+            if name is None:
+                name = 'driver_default.png'
             path = config.FILE_DIR + name
             # 写文件
             try:
@@ -341,6 +373,8 @@ class DCTCPSocket(BaseDCTCPSocket):
             send_json['status'] = True
             try:
                 name = service.GetRoomAvatar(msg['room']['rid'])
+                if name is None:
+                    name = 'room_default.png'
                 path = config.FILE_DIR + name
                 with open(name, 'rb') as f:
                     data_bytes = f.read()
@@ -377,6 +411,8 @@ class DCTCPSocket(BaseDCTCPSocket):
         self.server_socket.chat(msg, self.driver)
 
     def handle_one_msg(self, msg):
+        # logging.info('msg queue: {}'.format(json.dumps([item if not isinstance(item, bytes) else 'bytes' for item in self.msg_queue])))
+        # logging.info(msg)
         if msg['type'] == 'sys':
             self.handle_type_sys(msg)
         elif msg['type'] == 'chat':
@@ -421,11 +457,13 @@ class DCTCPServer(socketserver.TCPServer):
             client = self.clients[i]
             if client.driver == None:
                 will_del_index.append(i)
+                continue
             try:
                 client.send(data)
             except Exception as e:
                 logging.warning(str(e))
                 logging.warning("Send error in {}".format(json.dumps(client.driver, indent=4)))
+                client.driver = None
 
         # delete
         for index in reversed(will_del_index):
@@ -445,7 +483,7 @@ class DCTCPServer(socketserver.TCPServer):
             'detail': 'check alive'
         }
         while True:
-            self.send_all(min_json_dumps_to_bytes(send_json) + b'\n')
+            # self.send_all(min_json_dumps_to_bytes(send_json) + b'\n')
             time.sleep(5)
 
     def get_room_clients(self, rid):
@@ -453,17 +491,20 @@ class DCTCPServer(socketserver.TCPServer):
         for c in self.clients:
             if c.driver and 'room' in c.driver and rid in c.driver['room']:
                 send_list.append(c)
+        return send_list
 
     def chat_file(self, recv_json, from_driver, data_bytes):
         rid = int(recv_json['to'])
         # build json
         data = {
             'type': 'file',
+            'format': 'image',
             'detail': 'chat',
             'room': {
                 'rid': rid
             },
-            'from': from_driver['did']
+            'from': from_driver['did'],
+            'length': len(data_bytes)
         }
         send_list = self.get_room_clients(rid)
         logging.info(send_list)

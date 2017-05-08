@@ -187,7 +187,7 @@
     "did": Integer,
     "nickname": String,
     "badge": String,
-    "avatar": BLOB    // 未定，可能弃用
+    "avatar": String
   }, ...]
 }
 ```

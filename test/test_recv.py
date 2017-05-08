@@ -37,7 +37,11 @@ def main():
     print(s)
 
     while True:
-        print(test_socket.recv(1024))
+        data = test_socket.recv(1024)
+        if len(data) > 0:
+            print(data)
+        else:
+            break
 
 if __name__ == '__main__':
     main()

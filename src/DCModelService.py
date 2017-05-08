@@ -15,6 +15,7 @@ class DCModelService:
             with self.conn.cursor() as cursor:
                 cursor.execute(sql, (did))
                 driver = cursor.fetchone()
+            self.conn.commit()
         except Exception as e:
             print(str(e))
 
@@ -26,6 +27,7 @@ class DCModelService:
             with self.conn.cursor() as cursor:
                 cursor.execute(sql, (username))
                 driver = cursor.fetchone()
+            self.conn.commit()
         except Exception as e:
             print(str(e))
 
@@ -60,6 +62,7 @@ class DCModelService:
                 cursor.execute(sql)
                 rooms = cursor.fetchall()
                 return rooms
+            self.conn.commit()
         except Exception as e:
             print(str(e))
             return []
@@ -82,6 +85,7 @@ class DCModelService:
                 cursor.execute(sql, (did))
                 name = cursor.fetchone()['avatar']
             return name
+            self.conn.commit()
         except Exception as e:
             print(str(e))
             return None
@@ -104,6 +108,7 @@ class DCModelService:
                 cursor.execute(sql, (rid))
                 name = cursor.fetchone()['avatar']
             return name
+            self.conn.commit()
         except Exception as e:
             print(str(e))
             return None
@@ -119,6 +124,7 @@ class DCModelService:
                 return badge
             else:
                 return None
+            self.conn.commit()
         except Exception as e:
             print(str(e))
             return None
