@@ -209,7 +209,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             'rid': rid,
             'drivers': drivers
         }
-        self.send_clients(min_json_dumps_to_bytes(send_json) + b'\n', clients)
+        self.server_socket.send_clients(min_json_dumps_to_bytes(send_json) + b'\n', clients)
 
     @auth
     def handle_detail_driver_list(self, msg):
