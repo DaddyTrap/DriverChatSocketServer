@@ -120,8 +120,9 @@ class BaseDCTCPSocket(socket.socket):
                         self.msg_queue.append(msg)
                         # logging.info(self.msg_queue)
                     except Exception as e:
-                        logging.error(str(e))
-                        traceback.print_exc()
+                        # logging.error(str(e))
+                        # traceback.print_exc()
+                        raise e
                     finally:
                         if isfile:
                             data_str = self.data.decode('utf-8', errors='ignore')
@@ -208,9 +209,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             'rid': rid,
             'drivers': drivers
         }
-        for client in clients:
-            client.send(min_json_dumps_to_bytes(send_json) + b'\n')
-        # self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+        self.send_clients(min_json_dumps_to_bytes(send_json) + b'\n', clients)
 
     @auth
     def handle_detail_driver_list(self, msg):
@@ -285,7 +284,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             self.send(min_json_dumps_to_bytes(send_json) + b'\n')
             return
         send_json['rid'] = rid
-        if not hasattr(self.driver, 'room'):
+        if not 'room' in self.driver:
             self.driver['room'] = []
         self.driver['room'].append(rid)
         self.send(min_json_dumps_to_bytes(send_json) + b'\n')
@@ -308,7 +307,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             self.send(min_json_dumps_to_bytes(send_json) + b'\n')
             return
         send_json['rid'] = rid
-        if not hasattr(self.driver, 'room'):
+        if not 'room' in self.driver:
             self.driver['room'] = []
         try:
             self.driver['room'].remove(rid)
