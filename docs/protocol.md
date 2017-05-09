@@ -185,7 +185,7 @@
   "rid": Integer,
   "drivers": [{
     "did": Integer,
-    "nickname": String,
+    "name": String,
     "badge": String,
     "avatar": String
   }, ...]

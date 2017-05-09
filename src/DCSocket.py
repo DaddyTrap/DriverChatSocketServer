@@ -109,7 +109,7 @@ class BaseDCTCPSocket(socket.socket):
                         msg = json.loads(data_str[0:newline])
                         self.data = self.data[msg_bytes_len:]
                         logging.info(msg)
-                        if msg['type'] == 'file':
+                        if msg['type'] == 'file' and msg['updown'] == 'up':
                             isfile = True
                             # read file
                             logging.info("Reading file")
@@ -121,6 +121,7 @@ class BaseDCTCPSocket(socket.socket):
                         # logging.info(self.msg_queue)
                     except Exception as e:
                         logging.error(str(e))
+                        traceback.print_exc()
                     finally:
                         if isfile:
                             data_str = self.data.decode('utf-8', errors='ignore')
@@ -183,18 +184,16 @@ class DCTCPSocket(BaseDCTCPSocket):
             'detail': 'room list',
             'rooms': rooms
         }
-        logging.info(send_json)
         self.send(min_json_dumps_to_bytes(send_json) + b'\n')
 
-
-    @auth
-    def handle_detail_driver_list(self, msg):
-        self.log_request('driver list')
+    def update_driver_list(self, rid):
         service = DCModelService(g_db_connection)
-        rid = int(msg['rid'])
         clients = self.server_socket.get_room_clients(rid)
+        dids = []
+        for item in clients:
+            if item.driver and item.driver['did'] not in dids:
+                dids.append(item.driver['did'])
 
-        dids = [item.drivers['did'] for item in clients]
         drivers = []
         
         for did in dids:
@@ -209,7 +208,16 @@ class DCTCPSocket(BaseDCTCPSocket):
             'rid': rid,
             'drivers': drivers
         }
-        self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+        for client in clients:
+            client.send(min_json_dumps_to_bytes(send_json) + b'\n')
+        # self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+
+    @auth
+    def handle_detail_driver_list(self, msg):
+        self.log_request('driver list')
+        rid = int(msg['rid'])
+        
+        self.update_driver_list(rid)
 
     def handle_detail_sign_up(self, msg):
         self.log_request('sign up')
@@ -281,6 +289,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             self.driver['room'] = []
         self.driver['room'].append(rid)
         self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+        self.update_driver_list(rid)
 
     @auth
     def handle_detail_quit_room(self, msg):
@@ -291,7 +300,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             'status': True
         }
         try:
-            rid = msg['rid']
+            rid = int(msg['rid'])
         except KeyError as e:
             logging.warn(str(e))
             logging.warn("key error when did({}) is requesting quit room".format(self.driver['did']))
@@ -306,7 +315,8 @@ class DCTCPSocket(BaseDCTCPSocket):
         except ValueError as e:
             logging.warn("no such rid when did({}) is requesting quit room".format(self.driver['did']))
             send_json['status'] = False
-        self.send(min_json_dumps_to_bytes(send_json) + b'\n')            
+        self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+        self.update_driver_list(rid)
 
     @auth
     def handle_type_file(self, msg):
@@ -353,15 +363,20 @@ class DCTCPSocket(BaseDCTCPSocket):
                 return
             service.SetAvatar(msg['driver']['did'], path)
         elif msg['updown'] == 'down':
+            logging.info("dealing with down")
             send_json['status'] = True
             try:
                 name = service.GetAvatar(msg['driver']['did'])
+                if not name:
+                    name = 'driver_default.png'
                 path = config.FILE_DIR + name
-                with open(name, 'rb') as f:
+                with open(path, 'rb') as f:
                     data_bytes = f.read()
                 send_json['length'] = len(data_bytes)
                 self.send(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes)
             except Exception as e:
+                logging.warn(str(e))
+                traceback.print_exc()
                 send_json['status'] = False
                 self.send(min_json_dumps_to_bytes(send_json) + b'\n')
                 return
@@ -376,7 +391,7 @@ class DCTCPSocket(BaseDCTCPSocket):
                 if name is None:
                     name = 'room_default.png'
                 path = config.FILE_DIR + name
-                with open(name, 'rb') as f:
+                with open(path, 'rb') as f:
                     data_bytes = f.read()
                 send_json['length'] = len(data_bytes)
                 self.send(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes)
