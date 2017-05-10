@@ -150,7 +150,7 @@ def auth(func):
             send_json = kwargs['msg']
             send_json['status'] = False
             send_json['msg'] = 'sign in first'
-            self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+            self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
             return None
         return func(self, *args, **kwargs)
     return wrapper
@@ -185,7 +185,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             'detail': 'room list',
             'rooms': rooms
         }
-        self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+        self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
 
     def update_driver_list(self, rid):
         service = DCModelService(g_db_connection)
@@ -230,7 +230,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             'msg': '创建成功' if res['status'] else '创建失败',
             'did': res['did']
         }
-        self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+        self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
 
     def handle_detail_sign_in(self, msg):
         self.log_request('sign in')
@@ -259,12 +259,12 @@ class DCTCPSocket(BaseDCTCPSocket):
             }
             send_json['msg'] = '登录成功'
             send_json['status'] = True
-            self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+            self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
         else:
             # 登录失败
             send_json['status'] = False
             send_json['msg'] = '登录失败'
-            self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+            self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
 
     @auth
     def handle_detail_enter_room(self, msg):
@@ -281,13 +281,13 @@ class DCTCPSocket(BaseDCTCPSocket):
             logging.warn(str(e))
             logging.warn("key error when did({}) is requesting enter room".format(self.driver['did']))
             send_json['status'] = True
-            self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+            self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
             return
         send_json['rid'] = rid
         if not 'room' in self.driver:
             self.driver['room'] = []
         self.driver['room'].append(rid)
-        self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+        self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
         self.update_driver_list(rid)
 
     @auth
@@ -304,7 +304,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             logging.warn(str(e))
             logging.warn("key error when did({}) is requesting quit room".format(self.driver['did']))
             send_json['status'] = True
-            self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+            self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
             return
         send_json['rid'] = rid
         if not 'room' in self.driver:
@@ -314,7 +314,7 @@ class DCTCPSocket(BaseDCTCPSocket):
         except ValueError as e:
             logging.warn("no such rid when did({}) is requesting quit room".format(self.driver['did']))
             send_json['status'] = False
-        self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+        self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
         self.update_driver_list(rid)
 
     @auth
@@ -345,7 +345,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             # 验证身份
             if msg['driver']['did'] != self.driver['did']:
                 send_json['status'] = False
-                self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
                 return
             name = gen_filename(data_bytes[0:20] + str(time.clock()).encode('utf-8'))
             if name is None:
@@ -358,7 +358,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             except Exception as e:
                 logging.warn(str(e))
                 send_json['status'] = False
-                self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
                 return
             service.SetAvatar(msg['driver']['did'], path)
         elif msg['updown'] == 'down':
@@ -372,12 +372,12 @@ class DCTCPSocket(BaseDCTCPSocket):
                 with open(path, 'rb') as f:
                     data_bytes = f.read()
                 send_json['length'] = len(data_bytes)
-                self.send(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes)
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes)
             except Exception as e:
                 logging.warn(str(e))
                 traceback.print_exc()
                 send_json['status'] = False
-                self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
                 return
 
     def handle_detail_room_avatar(self, msg, data_bytes=None):
@@ -393,10 +393,10 @@ class DCTCPSocket(BaseDCTCPSocket):
                 with open(path, 'rb') as f:
                     data_bytes = f.read()
                 send_json['length'] = len(data_bytes)
-                self.send(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes)
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes)
             except Exception as e:
                 send_json['status'] = False
-                self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
                 return
 
     def handle_detail_badge(self, msg):
@@ -408,12 +408,12 @@ class DCTCPSocket(BaseDCTCPSocket):
             badge = badges[0] if len(badges) > 0 else None
             if badge == None:
                 send_json['status'] = False
-                self.send(min_json_dumps_to_bytes(send_json) + b'\n')
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
             else:
                 with open(config.FILE_DIR + badge, 'rb') as f:
                     data_bytes = f.read()
                 send_json['length'] = len(data_bytes)
-                self.send(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes)
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes)
 
     def handle_detail_chat(self, msg, data_bytes=None):
         send_json = msg
