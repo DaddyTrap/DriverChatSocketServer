@@ -374,7 +374,9 @@ class DCTCPSocket(BaseDCTCPSocket):
                 with open(path, 'rb') as f:
                     data_bytes = f.read()
                 send_json['length'] = len(data_bytes)
-                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes + b'\n')
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+                self.sendall(data_bytes)
+                self.sendall(b'\n')
             except Exception as e:
                 logging.warn(str(e))
                 traceback.print_exc()
@@ -395,7 +397,9 @@ class DCTCPSocket(BaseDCTCPSocket):
                 with open(path, 'rb') as f:
                     data_bytes = f.read()
                 send_json['length'] = len(data_bytes)
-                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes + b'\n')
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+                self.sendall(data_bytes)
+                self.sendall(b'\n')
             except Exception as e:
                 send_json['status'] = False
                 self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
@@ -415,7 +419,9 @@ class DCTCPSocket(BaseDCTCPSocket):
                 with open(config.FILE_DIR + badge, 'rb') as f:
                     data_bytes = f.read()
                 send_json['length'] = len(data_bytes)
-                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes + b'\n')
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+                self.sendall(data_bytes)
+                self.sendall(b'\n')
 
     def handle_detail_chat(self, msg, data_bytes=None):
         send_json = msg
@@ -524,7 +530,9 @@ class DCTCPServer(socketserver.TCPServer):
         }
         send_list = self.get_room_clients(rid)
         logging.info(send_list)
-        return self.send_clients(min_json_dumps_to_bytes(data) + b'\n' + data_bytes + b'\n', send_list)
+        self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+        self.sendall(data_bytes)
+        self.sendall(b'\n')
 
     def chat(self, recv_json, from_driver):
         rid = int(recv_json['to'])
