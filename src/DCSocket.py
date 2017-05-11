@@ -19,7 +19,7 @@ import os
 import config
 from DCModelService import DCModelService
 
-g_db_connection = pymysql.connect(**config.DATABASE['main'], cursorclass=pymysql.cursors.DictCursor)
+from DBHelper import get_db_conn
 
 MAX_FILE_SIZE = 1024 * 1024 * 10
 
@@ -82,13 +82,13 @@ class BaseDCTCPSocket(socket.socket):
         while bytes_len > 0:
             if len(self.data) >= bytes_len:
                 ret += self.data[:bytes_len]
-                self.data = self.data[bytes_len:]
+                self.data = self.data[bytes_len + 1:]
                 break
             else:
                 ret += self.data
                 bytes_len -= len(self.data)
-                self.data = self.recv(10240)
-        self.data = self.data[1:]   # it is '\n'
+                if bytes_len > 0:
+                    self.data = self.recv(10240)
         return ret
 
     def read_loop(self):
@@ -178,7 +178,7 @@ class DCTCPSocket(BaseDCTCPSocket):
     @auth
     def handle_detail_room_list(self, msg):
         self.log_request('room list')
-        service = DCModelService(g_db_connection)
+        service = DCModelService(get_db_conn())
         rooms = service.ListRooms()
         for i in rooms:
             i['created_at'] = i['created_at'].strftime("%Y-%m-%d %H:%M:%S %z")
@@ -190,7 +190,7 @@ class DCTCPSocket(BaseDCTCPSocket):
         self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
 
     def update_driver_list(self, rid):
-        service = DCModelService(g_db_connection)
+        service = DCModelService(get_db_conn())
         clients = self.server_socket.get_room_clients(rid)
         dids = []
         for item in clients:
@@ -222,7 +222,7 @@ class DCTCPSocket(BaseDCTCPSocket):
 
     def handle_detail_sign_up(self, msg):
         self.log_request('sign up')
-        service = DCModelService(g_db_connection)
+        service = DCModelService(get_db_conn())
         driver = msg['driver']
         res = service.CreateDriver(driver['username'], driver['password'], driver['name'])
         send_json = {
@@ -242,7 +242,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             'status': True,
             'msg': ''
         }
-        service = DCModelService(g_db_connection)
+        service = DCModelService(get_db_conn())
         req_driver = msg['driver']
         logging.info(req_driver)
         driver = service.SearchDriverWithUsername(req_driver['username'])
@@ -296,7 +296,7 @@ class DCTCPSocket(BaseDCTCPSocket):
     def handle_detail_quit_room(self, msg):
         send_json = {
             'type': 'sys',
-            'detail': 'enter room',
+            'detail': 'quit room',
             'rid': None,
             'status': True
         }
@@ -342,7 +342,7 @@ class DCTCPSocket(BaseDCTCPSocket):
 
     def handle_detail_driver_avatar(self, msg, data_bytes=None):
         send_json = msg
-        service = DCModelService(g_db_connection)
+        service = DCModelService(get_db_conn())
         if msg['updown'] == 'up':
             # 验证身份
             if msg['driver']['did'] != self.driver['did']:
@@ -386,7 +386,7 @@ class DCTCPSocket(BaseDCTCPSocket):
 
     def handle_detail_room_avatar(self, msg, data_bytes=None):
         send_json = msg
-        service = DCModelService(g_db_connection)
+        service = DCModelService(get_db_conn())
         if msg['updown'] == 'down':
             send_json['status'] = True
             try:
@@ -407,7 +407,7 @@ class DCTCPSocket(BaseDCTCPSocket):
 
     def handle_detail_badge(self, msg):
         send_json = msg
-        service = DCModelService(g_db_connection)
+        service = DCModelService(get_db_conn())
         if msg['updown'] == 'down':
             send_json['status'] = True
             badges = service.GetBadge(msg['did'])
