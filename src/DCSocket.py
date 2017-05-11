@@ -88,6 +88,7 @@ class BaseDCTCPSocket(socket.socket):
                 ret += self.data
                 bytes_len -= len(self.data)
                 self.data = self.recv(10240)
+        self.data = self.data[1:]   # it is '\n'
         return ret
 
     def read_loop(self):
@@ -137,6 +138,7 @@ class BaseDCTCPSocket(socket.socket):
                 traceback.print_exc()
                 logging.warning("Received error in {}\tGoing to kill self.".format(json.dumps(self.driver, indent=4)))
                 self.driver = None
+                return
 
     def __del__(self):
         self.read_thread._stop()
@@ -372,7 +374,7 @@ class DCTCPSocket(BaseDCTCPSocket):
                 with open(path, 'rb') as f:
                     data_bytes = f.read()
                 send_json['length'] = len(data_bytes)
-                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes)
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes + b'\n')
             except Exception as e:
                 logging.warn(str(e))
                 traceback.print_exc()
@@ -393,7 +395,7 @@ class DCTCPSocket(BaseDCTCPSocket):
                 with open(path, 'rb') as f:
                     data_bytes = f.read()
                 send_json['length'] = len(data_bytes)
-                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes)
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes + b'\n')
             except Exception as e:
                 send_json['status'] = False
                 self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
@@ -413,7 +415,7 @@ class DCTCPSocket(BaseDCTCPSocket):
                 with open(config.FILE_DIR + badge, 'rb') as f:
                     data_bytes = f.read()
                 send_json['length'] = len(data_bytes)
-                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes)
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n' + data_bytes + b'\n')
 
     def handle_detail_chat(self, msg, data_bytes=None):
         send_json = msg
@@ -522,7 +524,7 @@ class DCTCPServer(socketserver.TCPServer):
         }
         send_list = self.get_room_clients(rid)
         logging.info(send_list)
-        return self.send_clients(min_json_dumps_to_bytes(data) + b'\n' + data_bytes, send_list)
+        return self.send_clients(min_json_dumps_to_bytes(data) + b'\n' + data_bytes + b'\n', send_list)
 
     def chat(self, recv_json, from_driver):
         rid = int(recv_json['to'])
