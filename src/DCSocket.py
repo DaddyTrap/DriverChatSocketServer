@@ -149,7 +149,7 @@ Only for class *DCTCPSocket*
 def auth(func):
     def wrapper(self, *args, **kwargs):
         if not self.driver:
-            send_json = kwargs['msg']
+            send_json = args[0]
             send_json['status'] = False
             send_json['msg'] = 'sign in first'
             self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
