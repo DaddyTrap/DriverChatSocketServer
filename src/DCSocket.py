@@ -355,7 +355,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             path = config.FILE_DIR + name
             # 写文件
             try:
-                with open(path, 'rb') as f:
+                with open(path, 'wb') as f:
                     f.write(data_bytes)
             except Exception as e:
                 logging.warn(str(e))
