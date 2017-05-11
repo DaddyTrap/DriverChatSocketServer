@@ -530,9 +530,11 @@ class DCTCPServer(socketserver.TCPServer):
         }
         send_list = self.get_room_clients(rid)
         logging.info(send_list)
-        self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
-        self.sendall(data_bytes)
-        self.sendall(b'\n')
+        for client in send_list:
+            client.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+            client.sendall(data_bytes)
+            client.sendall(b'\n')
+        # return self.send_clients(min_json_dumps_to_bytes(data) + b'\n' + data_bytes + b'\n', send_list)
 
     def chat(self, recv_json, from_driver):
         rid = int(recv_json['to'])
