@@ -9,6 +9,7 @@ def checkConn(conn):
     try:
         with conn.cursor() as cur:
             cur.execute( sq )
+            conn.commit()
     except pymysql.Error as e:
         return False
     return True
