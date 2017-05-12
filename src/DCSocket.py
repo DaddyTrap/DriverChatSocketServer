@@ -227,9 +227,10 @@ class DCTCPSocket(BaseDCTCPSocket):
             "type": 'sys',
             'detail': 'sign up',
             'status': res['status'],
-            'msg': '创建成功' if res['status'] else '创建失败',
-            'did': res['did']
+            'msg': '创建成功' if res['status'] else '创建失败'
         }
+        if res['status']:
+            send_json['did'] = res['did']
         self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
 
     def handle_detail_sign_in(self, msg):
