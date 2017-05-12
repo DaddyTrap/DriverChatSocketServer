@@ -10,7 +10,7 @@ def checkConn(conn):
         with conn.cursor() as cur:
             cur.execute( sq )
             conn.commit()
-    except pymysql.Error as e:
+    except Exception as e:
         return False
     return True
 

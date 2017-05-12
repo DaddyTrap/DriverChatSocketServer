@@ -258,13 +258,13 @@ class DCTCPSocket(BaseDCTCPSocket):
                 'created_at': driver['created_at'].strftime("%Y-%m-%d %H:%M:%S %z"),
                 'avatar': driver['avatar']
             }
-            send_json['msg'] = 'Sign up Success'
+            send_json['msg'] = 'Sign in Success'
             send_json['status'] = True
             self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
         else:
             # 登录失败
             send_json['status'] = False
-            send_json['msg'] = 'Sign up Fail'
+            send_json['msg'] = 'Sign in Fail'
             self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
 
     @auth
