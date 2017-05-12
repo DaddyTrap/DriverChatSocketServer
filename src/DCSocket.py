@@ -2,7 +2,7 @@
 # -- coding:utf-8 --
 
 import logging
-logging.basicConfig(format='[%(levelno)s] [File %(filename)s Line %(lineno)d] [%(asctime)s] %(message)s', level=logging.INFO)
+logging.basicConfig(format='[%(levelno)s][%(filename)s Line %(lineno)d] [%(asctime)s] %(message)s', level=logging.INFO)
 logging.root.setLevel(logging.INFO)
 
 import socketserver
@@ -105,24 +105,20 @@ class BaseDCTCPSocket(socket.socket):
                 while newline != -1:
                     isfile = False
                     msg_bytes_len = len(data_str[0:newline + 1].encode('utf-8'))
-                    logging.info(data_str[0:newline])
+                    logging.info('{} msg: {}'.format(self.getpeername(), data_str[0:newline]))
                     try:
                         msg = json.loads(data_str[0:newline])
                         self.data = self.data[msg_bytes_len:]
-                        logging.info(msg)
                         if msg['type'] == 'file' and msg['updown'] == 'up':
                             isfile = True
                             # read file
-                            logging.info("Reading file")
+                            logging.info('{}: {}'.format(self.getpeername(), "Reading file"))
                             self.msg_queue.append(msg)
-                            logging.info('msg queue: {}'.format(json.dumps([item if not isinstance(item, bytes) else 'bytes' for item in self.msg_queue])))
+                            # logging.info('msg queue: {}'.format(json.dumps([item if not isinstance(item, bytes) else 'bytes' for item in self.msg_queue])))
                             msg = self.read_file(msg)
-                            logging.info("File Read complete")
+                            logging.info('{}: {}'.format(self.getpeername(), "File Read complete"))
                         self.msg_queue.append(msg)
-                        # logging.info(self.msg_queue)
                     except Exception as e:
-                        # logging.error(str(e))
-                        # traceback.print_exc()
                         raise e
                     finally:
                         if isfile:
@@ -134,7 +130,6 @@ class BaseDCTCPSocket(socket.socket):
                 self.handle_read()
             except Exception as e:
                 logging.warning(str(e))
-                # traceback.print_last()
                 traceback.print_exc()
                 logging.warning("Received error in {}\tGoing to kill self.".format(json.dumps(self.driver, indent=4)))
                 self.driver = None
