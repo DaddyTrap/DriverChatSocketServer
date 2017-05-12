@@ -40,12 +40,12 @@ class BaseDCTCPSocket(socket.socket):
         "room": [rid0, rid1, ...]
     }
     """
-    driver = {}
+    driver = None
     read_thread = None
 
-    msg_queue = []
+    msg_queue = None
 
-    data = b""
+    data = None
     self_socket = None
 
     server_socket = None
@@ -59,6 +59,9 @@ class BaseDCTCPSocket(socket.socket):
             other_socket.fileno()
             )
         logging.info('connected with ip_addr: {}'.format(self.getpeername()))
+        self.driver = {}
+        self.msg_queue = []
+        self.data = b""
         self.server_socket = server_socket
         self.self_socket = other_socket
         self.read_thread = threading.Thread(target=self.read_loop)
