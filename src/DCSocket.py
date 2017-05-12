@@ -227,7 +227,7 @@ class DCTCPSocket(BaseDCTCPSocket):
             "type": 'sys',
             'detail': 'sign up',
             'status': res['status'],
-            'msg': '创建成功' if res['status'] else '创建失败'
+            'msg': 'Create Success' if res['status'] else 'Create Failed'
         }
         if res['status']:
             send_json['did'] = res['did']
@@ -258,13 +258,13 @@ class DCTCPSocket(BaseDCTCPSocket):
                 'created_at': driver['created_at'].strftime("%Y-%m-%d %H:%M:%S %z"),
                 'avatar': driver['avatar']
             }
-            send_json['msg'] = '登录成功'
+            send_json['msg'] = 'Sign up Success'
             send_json['status'] = True
             self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
         else:
             # 登录失败
             send_json['status'] = False
-            send_json['msg'] = '登录失败'
+            send_json['msg'] = 'Sign up Fail'
             self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
 
     @auth
