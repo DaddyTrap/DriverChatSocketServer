@@ -41,7 +41,7 @@ class DCModelService:
                 cursor.execute(search_dup_sql, username)
                 count = cursor.rowcount
             if count > 0:
-                raise Exception("重复的用户名")
+                raise Exception("Duplicated username")
 
             password = password.encode('utf-8') + config.DRIVER_SALT
             password = hashlib.sha256(password).hexdigest()
