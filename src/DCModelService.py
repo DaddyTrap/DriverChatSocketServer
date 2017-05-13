@@ -11,6 +11,7 @@ class DCModelService:
 
     def SearchDriverWithDid(self, did):
         sql = "select * from Driver where did = %s"
+        driver = None
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute(sql, (did))
@@ -23,6 +24,7 @@ class DCModelService:
 
     def SearchDriverWithUsername(self, username):
         sql = "select * from Driver where username = %s"
+        driver = None
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute(sql, (username))
@@ -61,11 +63,11 @@ class DCModelService:
             with self.conn.cursor() as cursor:
                 cursor.execute(sql)
                 rooms = cursor.fetchall()
-                return rooms
-            self.conn.commit()
+                self.conn.commit()
         except Exception as e:
             print(str(e))
             return []
+        return rooms
 
     def SetAvatar(self, did, name):
         sql = "update Driver set avatar = %s where did = %s"
@@ -107,8 +109,8 @@ class DCModelService:
             with self.conn.cursor() as cursor:
                 cursor.execute(sql, (rid))
                 name = cursor.fetchone()['avatar']
+                self.conn.commit()
             return name
-            self.conn.commit()
         except Exception as e:
             print(str(e))
             return None
@@ -119,12 +121,12 @@ class DCModelService:
             with self.conn.cursor() as cursor:
                 cursor.execute(sql, (did))
                 badge_json = cursor.fetchone()['badge']
+                self.conn.commit()
             if badge_json is not None:
                 badge = json.loads(badge_json)
                 return badge
             else:
                 return None
-            self.conn.commit()
         except Exception as e:
             print(str(e))
             return None

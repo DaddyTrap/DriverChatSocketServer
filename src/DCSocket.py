@@ -131,12 +131,25 @@ class BaseDCTCPSocket(socket.socket):
                         newline = data_str.find('\n')
 
                 self.handle_read()
+            except ConnectionError as e:
+                logging.warning(str(e))
+                traceback.print_exc()
+                logging.error("Received error in {}\tGoing to kill self.".format(json.dumps(self.driver, indent=4)))
+                self.driver = None
+                return
             except Exception as e:
                 logging.warning(str(e))
                 traceback.print_exc()
-                logging.warning("Received error in {}\tGoing to kill self.".format(json.dumps(self.driver, indent=4)))
-                self.driver = None
-                return
+                logging.warning("Received exception in {}\tTolerate it but reset self.data".format(json.dumps(self.driver, indent=4)))
+                try:
+                    self.data = self.recv(10240)
+                    self.data = b''
+                except Exception as e:
+                    logging.warning(str(e))
+                    traceback.print_exc()
+                    logging.error("Received error in {}\tGoing to kill self.".format(json.dumps(self.driver, indent=4)))
+                    self.driver = None
+                    return
 
     def __del__(self):
         self.read_thread._stop()
@@ -199,10 +212,12 @@ class DCTCPSocket(BaseDCTCPSocket):
         
         for did in dids:
             driver = service.SearchDriverWithDid(did)
-            del driver['username']
-            del driver['password']
-            del driver['created_at']
-            drivers.append(driver)
+            if driver is not None:
+                del driver['username']
+                del driver['password']
+                del driver['created_at']
+                del driver['avatar']
+                drivers.append(driver)
         send_json = {
             'type': 'sys',
             'detail': 'driver list',
