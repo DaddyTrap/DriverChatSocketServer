@@ -1,8 +1,9 @@
-import pymysql
+# -- coding: utf8 --
 
+import pymysql
 import config
 
-g_db_connection = pymysql.connect(**config.DATABASE['main'], cursorclass=pymysql.cursors.DictCursor)
+g_db_connection = None
 
 def checkConn(conn):
     sq = "SELECT NOW()"
@@ -17,5 +18,5 @@ def checkConn(conn):
 def get_db_conn():
     global g_db_connection
     if g_db_connection is None or not checkConn(g_db_connection):
-        g_db_connection = pymysql.connect(**config.DATABASE['main'], cursorclass=pymysql.cursors.DictCursor)
+        g_db_connection = pymysql.connect(**config.DATABASE['main'], cursorclass=pymysql.cursors.DictCursor, charset='utf8')
     return g_db_connection
