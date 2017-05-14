@@ -378,7 +378,7 @@ class DCTCPSocket(BaseDCTCPSocket):
                 send_json['status'] = False
                 self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
                 return
-            service.SetAvatar(msg['driver']['did'], path)
+            service.SetAvatar(msg['driver']['did'], name)
         elif msg['updown'] == 'down':
             logging.info("dealing with down")
             send_json['status'] = True
