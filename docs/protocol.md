@@ -63,15 +63,33 @@
 }
 ```
 
+#### 进入房间
+
+```
+{
+  "type": "sys",
+  "detail": "enter room",
+  "rid": Integer
+}
+```
+
+#### 退出房间
+
+```
+{
+  "type": "sys",
+  "detail": "quit room",
+  "rid": Integer
+}
+```
+
 #### 更新房间用户列表信息
 
 ```
 {
   "type": "sys",
   "detail": "driver list",
-  "room": {
-    "rid": Integer
-  }
+  "rid": Integer
 }
 ```
 
@@ -136,20 +154,40 @@
 }
 ```
 
+#### 进入房间
+
+```
+{
+  "type": "sys",
+  "detail": "enter room",
+  "rid": Integer,
+  "status": true/false
+}
+```
+
+#### 退出房间
+
+```
+{
+  "type": "sys",
+  "detail": "quit room",
+  "rid": Integer,
+  "status": true/false
+}
+```
+
 #### 更新房间用户列表信息
 
 ```
 {
   "type": "sys",
   "detail": "driver list",
-  "room": {
-    "rid": Integer
-  },
+  "rid": Integer,
   "drivers": [{
     "did": Integer,
-    "nickname": String,
+    "name": String,
     "badge": String,
-    "avatar": BLOB    // 未定，可能弃用
+    "avatar": String
   }, ...]
 }
 ```
@@ -159,9 +197,35 @@
 ```
 {
   "type": "file",
+  "updown": "down",
   "format": "raw/image",
-  "length": Integer,
-  "from": Integer,
+  "detail": "driver avatar/room avatar/badge/chat",
+  "driver": { // avatar 或 badge
+    "did": Integer
+  },
+  "room": { // room avatar
+    "rid": Integer
+  },
+  "from": Integer,  // chat
   "to": Integer
 }
 ```
+
+```
+{
+  "type": "file",
+  "updown": "up",
+  "format": "raw/image",
+  "length": Integer,
+  "detail": "driver avatar/room avatar/chat",
+  "driver": { // avatar
+    "did": Integer
+  },
+  "room": { // room avatar
+    "rid": Integer
+  },
+  "from": Integer,  // chat
+  "to": Integer
+}
+```
+

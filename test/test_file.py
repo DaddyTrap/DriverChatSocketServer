@@ -44,5 +44,7 @@ def main():
             data_len -= len(recv_data)
             f.write(recv_data)
 
+    test_socket.close()
+
 if __name__ == '__main__':
     main()

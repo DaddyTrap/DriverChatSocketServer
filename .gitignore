@@ -1,3 +1,5 @@
 .vscode/
 src/config.py
 *.pyc
+test/*.jpg
+__pycache__/

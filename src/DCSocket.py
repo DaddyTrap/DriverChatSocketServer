@@ -2,34 +2,55 @@
 # -- coding:utf-8 --
 
 import logging
-logging.basicConfig(format='[In line %(lineno)d] [%(asctime)s] %(message)s', level=logging.INFO)
+logging.basicConfig(format='[%(levelno)s][%(filename)s Line %(lineno)d] [%(asctime)s] %(message)s', level=logging.INFO)
+logging.root.setLevel(logging.INFO)
 
 import socketserver
 import socket
 import threading
 import time
+import datetime
 import json
 import pymysql
+import hashlib
+import traceback
+import os
 
 import config
 from DCModelService import DCModelService
 
-g_db_connection = pymysql.connect(**config.DATABASE['main'], cursorclass=pymysql.cursors.DictCursor)
+from DBHelper import get_db_conn
 
 MAX_FILE_SIZE = 1024 * 1024 * 10
 
 socketserver.TCPServer.allow_reuse_address = True
 
+def min_json_dumps_to_bytes(json_dict):
+    return json.dumps(json_dict,separators=(',',':')).encode('utf-8')
+
+def gen_filename(seed):
+    name = hashlib.md5(seed).hexdigest()
+    return name
+
 class BaseDCTCPSocket(socket.socket):
-    driver = {}
+    """
+    driver = {
+        "username": String,
+        "did": Integer,
+        "room": [rid0, rid1, ...]
+    }
+    """
+    driver = None
     read_thread = None
 
-    msg_queue = []
+    msg_queue = None
 
-    data = b""
+    data = None
     self_socket = None
 
-    def __init__(self, other_socket=None):
+    server_socket = None
+
+    def __init__(self, other_socket=None, server_socket=None):
         socket.socket.__init__(
             self,
             other_socket.family,
@@ -37,17 +58,20 @@ class BaseDCTCPSocket(socket.socket):
             other_socket.proto,
             other_socket.fileno()
             )
+        logging.info('connected with ip_addr: {}'.format(self.getpeername()))
+        self.driver = {}
+        self.msg_queue = []
+        self.data = b""
+        self.server_socket = server_socket
         self.self_socket = other_socket
         self.read_thread = threading.Thread(target=self.read_loop)
         self.read_thread.start()
 
     def handle_read(self):
         while len(self.msg_queue) > 0:
-            logging.warn("handle read start")
             msg = self.msg_queue[0]
             del self.msg_queue[0]
             self.handle_one_msg(msg)
-            logging.warn("handle read end")
 
     def handle_one_msg(self, msg):
         raise NotImplementedError()
@@ -61,126 +85,382 @@ class BaseDCTCPSocket(socket.socket):
         while bytes_len > 0:
             if len(self.data) >= bytes_len:
                 ret += self.data[:bytes_len]
-                self.data = self.data[bytes_len:]
+                self.data = self.data[bytes_len + 1:]
                 break
             else:
                 ret += self.data
                 bytes_len -= len(self.data)
-                self.data = self.recv(10240)
+                if bytes_len > 0:
+                    self.data = self.recv(10240)
         return ret
 
     def read_loop(self):
         while True:
             try:
-                self.data += self.recv(10240)
+                self.data += self.recv(1024)
                 if len(self.data) == 0:
+                    # 使Driver登出
+                    self.driver = None
                     return
-
                 # parse data to messages
                 data_str = self.data.decode('utf-8', errors='ignore')
                 newline = data_str.find('\n')
-                # logging.warn(data_str)
                 while newline != -1:
+                    isfile = False
                     msg_bytes_len = len(data_str[0:newline + 1].encode('utf-8'))
+                    logging.info('{} msg: {}'.format(self.getpeername(), data_str[0:newline]))
                     try:
                         msg = json.loads(data_str[0:newline])
-                        logging.warn(msg)
-                        if msg['type'] == 'file':
+                        self.data = self.data[msg_bytes_len:]
+                        if msg['type'] == 'file' and msg['updown'] == 'up':
+                            isfile = True
                             # read file
-                            logging.warn("Reading file")
-                            self.data = self.data[msg_bytes_len:]
-                            logging.warn("Data cut")
+                            logging.info('{}: {}'.format(self.getpeername(), "Reading file"))
                             self.msg_queue.append(msg)
+                            # logging.info('msg queue: {}'.format(json.dumps([item if not isinstance(item, bytes) else 'bytes' for item in self.msg_queue])))
                             msg = self.read_file(msg)
-                            logging.warn("Read complete")
+                            logging.info('{}: {}'.format(self.getpeername(), "File Read complete"))
                         self.msg_queue.append(msg)
                     except Exception as e:
-                        logging.error(e)
+                        raise e
                     finally:
-                        logging.warn("finally start")
-                        self.data = self.data[msg_bytes_len:]
-                        data_str = data_str[newline + 1:]
+                        if isfile:
+                            data_str = self.data.decode('utf-8', errors='ignore')
+                        else:
+                            data_str = data_str[newline + 1:]
                         newline = data_str.find('\n')
-                        logging.warn("finally end")
 
                 self.handle_read()
+            except ConnectionError as e:
+                logging.warning(str(e))
+                traceback.print_exc()
+                logging.error("Received error in {}\tGoing to kill self.".format(json.dumps(self.driver, indent=4)))
+                self.driver = None
+                return
             except Exception as e:
                 logging.warning(str(e))
-                logging.warning("Received error in {}\tGoing to kill self.".format(json.dumps(self.driver, indent=4)))
-                self.driver = None
+                traceback.print_exc()
+                logging.warning("Received exception in {}\tTolerate it but reset self.data".format(json.dumps(self.driver, indent=4)))
+                try:
+                    self.data = self.recv(10240)
+                    self.data = b''
+                except Exception as e:
+                    logging.warning(str(e))
+                    traceback.print_exc()
+                    logging.error("Received error in {}\tGoing to kill self.".format(json.dumps(self.driver, indent=4)))
+                    self.driver = None
+                    return
 
     def __del__(self):
         self.read_thread._stop()
 
+"""
+Only for class *DCTCPSocket*
+"""
+def auth(func):
+    def wrapper(self, *args, **kwargs):
+        if not self.driver:
+            send_json = args[0]
+            send_json['status'] = False
+            send_json['msg'] = 'sign in first'
+            self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+            return None
+        return func(self, *args, **kwargs)
+    return wrapper
+
 class DCTCPSocket(BaseDCTCPSocket):
-    # @classmethod
-    def auth(func):
-        def wrapper(self, *args, **kwargs):
-            if not self.driver:
-                return None
-            return func(self, *args, **kwargs)
-        return wrapper
-    
+    def log_request(self, req_name):
+        logging.info('{} request from {}'.format(req_name, self.getpeername()))
+
     def handle_type_sys(self, msg):
         if msg['detail'] == 'sign up':
             self.handle_detail_sign_up(msg)
         elif msg['detail'] == 'sign in':
             self.handle_detail_sign_in(msg)
+        elif msg['detail'] == 'enter room':
+            self.handle_detail_enter_room(msg)
+        elif msg['detail'] == 'quit room':
+            self.handle_detail_quit_room(msg)
+        elif msg['detail'] == 'room list':
+            self.handle_detail_room_list(msg)
+        elif msg['detail'] == 'driver list':
+            self.handle_detail_driver_list(msg)
+
+    @auth
+    def handle_detail_room_list(self, msg):
+        self.log_request('room list')
+        service = DCModelService(get_db_conn())
+        rooms = service.ListRooms()
+        for i in rooms:
+            i['created_at'] = i['created_at'].strftime("%Y-%m-%d %H:%M:%S %z")
+        send_json = {
+            'type': 'sys',
+            'detail': 'room list',
+            'rooms': rooms
+        }
+        self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+
+    def update_driver_list(self, rid):
+        service = DCModelService(get_db_conn())
+        clients = self.server_socket.get_room_clients(rid)
+        dids = []
+        for item in clients:
+            if item.driver and item.driver['did'] not in dids:
+                dids.append(item.driver['did'])
+
+        drivers = []
+        
+        for did in dids:
+            driver = service.SearchDriverWithDid(did)
+            if driver is not None:
+                del driver['username']
+                del driver['password']
+                del driver['created_at']
+                del driver['avatar']
+                if driver['badge'] is None:
+                    driver['badge'] = "1"
+                drivers.append(driver)
+        send_json = {
+            'type': 'sys',
+            'detail': 'driver list',
+            'rid': rid,
+            'drivers': drivers
+        }
+        self.server_socket.send_clients(min_json_dumps_to_bytes(send_json) + b'\n', clients)
+
+    @auth
+    def handle_detail_driver_list(self, msg):
+        self.log_request('driver list')
+        rid = int(msg['rid'])
+        
+        self.update_driver_list(rid)
 
     def handle_detail_sign_up(self, msg):
-        logging.warn(msg)
-        service = DCModelService(g_db_connection)
+        self.log_request('sign up')
+        service = DCModelService(get_db_conn())
         driver = msg['driver']
         res = service.CreateDriver(driver['username'], driver['password'], driver['name'])
-        return {
+        send_json = {
             "type": 'sys',
             'detail': 'sign up',
             'status': res['status'],
-            'msg': '创建成功',
-            'did': res['did']
+            'msg': 'Create Success' if res['status'] else 'Create Failed'
         }
+        if res['status']:
+            send_json['did'] = res['did']
+        self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
 
     def handle_detail_sign_in(self, msg):
-        pass
-
-    def handle_type_file(self, msg):
-        logging.warn("handle type file start")
-        data_bytes = self.msg_queue[0]
-        del self.msg_queue[0]
-        with open('test.jpg', 'wb') as f:
-            f.write(data_bytes)
-        logging.warn("handle type file end")
+        self.log_request('sign in')
         send_json = {
-            "type": 'file',
-            'format': 'image',
-            'length': len(data_bytes),
-            'from': 1,
-            'to': 1
+            'type': 'sys',
+            'detail': 'sign in',
+            'status': True,
+            'msg': ''
+        }
+        service = DCModelService(get_db_conn())
+        req_driver = msg['driver']
+        logging.info(req_driver)
+        driver = service.SearchDriverWithUsername(req_driver['username'])
+        if driver != None and driver['password'] == hashlib.sha256(req_driver['password'].encode('utf-8') + config.DRIVER_SALT).hexdigest():
+            self.driver = {
+                'username': driver['username'],
+                'did': driver['did']
+            }
+            # 登录成功
+            send_json['driver'] = {
+                'did': driver['did'],
+                'name': driver['name'],
+                'badge': driver['badge'],
+                'created_at': driver['created_at'].strftime("%Y-%m-%d %H:%M:%S %z"),
+                'avatar': driver['avatar']
+            }
+            send_json['msg'] = 'Sign in Success'
+            send_json['status'] = True
+            self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+        else:
+            # 登录失败
+            send_json['status'] = False
+            send_json['msg'] = 'Sign in Fail'
+            self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+
+    @auth
+    def handle_detail_enter_room(self, msg):
+        self.log_request('enter room')
+        send_json = {
+            'type': 'sys',
+            'detail': 'enter room',
+            'rid': None,
+            'status': True
         }
         try:
-            send_json_bytes = json.dumps(send_json,separators=(',',':')).encode('utf-8') + b'\n'
-        except Exception as e:
+            rid = int(msg['rid'])
+        except KeyError as e:
             logging.warn(str(e))
-        logging.warn(send_json_bytes)
-        self.send(send_json_bytes + data_bytes)
+            logging.warn("key error when did({}) is requesting enter room".format(self.driver['did']))
+            send_json['status'] = True
+            self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+            return
+        send_json['rid'] = rid
+        if not 'room' in self.driver:
+            self.driver['room'] = []
+        self.driver['room'].append(rid)
+        self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+        self.update_driver_list(rid)
+
+    @auth
+    def handle_detail_quit_room(self, msg):
+        send_json = {
+            'type': 'sys',
+            'detail': 'quit room',
+            'rid': None,
+            'status': True
+        }
+        try:
+            rid = int(msg['rid'])
+        except KeyError as e:
+            logging.warn(str(e))
+            logging.warn("key error when did({}) is requesting quit room".format(self.driver['did']))
+            send_json['status'] = True
+            self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+            return
+        send_json['rid'] = rid
+        if not 'room' in self.driver:
+            self.driver['room'] = []
+        try:
+            self.driver['room'].remove(rid)
+        except ValueError as e:
+            logging.warn("no such rid when did({}) is requesting quit room".format(self.driver['did']))
+            send_json['status'] = False
+        self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+        self.update_driver_list(rid)
+
+    @auth
+    def handle_type_file(self, msg):
+        self.log_request('type file')
+        data_bytes = None
+        if msg['updown'] == 'up':
+            data_bytes = self.msg_queue[0]
+            del self.msg_queue[0]
+        if msg['detail'] == 'driver avatar':
+            self.handle_detail_driver_avatar(msg, data_bytes)
+        elif msg['detail'] == 'room avatar':
+            self.handle_detail_room_avatar(msg, data_bytes)
+        elif msg['detail'] == 'badge':
+            self.handle_detail_badge(msg)
+        elif msg['detail'] == 'chat':
+            self.handle_detail_chat(msg, data_bytes)
+
+        # data_bytes = self.msg_queue[0]
+        # del self.msg_queue[0]
+        # logging.info('msg queue: {}'.format(json.dumps([item if not isinstance(item, bytes) else 'bytes' for item in self.msg_queue])))
+        # self.send(min_json_dumps_to_bytes(msg) + b'\n' + data_bytes)
+
+    def handle_detail_driver_avatar(self, msg, data_bytes=None):
+        send_json = msg
+        service = DCModelService(get_db_conn())
+        if msg['updown'] == 'up':
+            # 验证身份
+            if msg['driver']['did'] != self.driver['did']:
+                send_json['status'] = False
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+                return
+            name = gen_filename(data_bytes[0:20] + str(time.clock()).encode('utf-8'))
+            if name is None:
+                name = 'driver_default.png'
+            path = config.FILE_DIR + name
+            # 写文件
+            try:
+                with open(path, 'wb') as f:
+                    f.write(data_bytes)
+            except Exception as e:
+                logging.warn(str(e))
+                send_json['status'] = False
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+                return
+            service.SetAvatar(msg['driver']['did'], name)
+        elif msg['updown'] == 'down':
+            logging.info("dealing with down")
+            send_json['status'] = True
+            try:
+                name = service.GetAvatar(msg['driver']['did'])
+                if not name:
+                    name = 'driver_default.png'
+                path = config.FILE_DIR + name
+                with open(path, 'rb') as f:
+                    data_bytes = f.read()
+                send_json['length'] = len(data_bytes)
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+                self.sendall(data_bytes)
+                self.sendall(b'\n')
+            except Exception as e:
+                logging.warn(str(e))
+                traceback.print_exc()
+                send_json['status'] = False
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+                return
+
+    def handle_detail_room_avatar(self, msg, data_bytes=None):
+        send_json = msg
+        service = DCModelService(get_db_conn())
+        if msg['updown'] == 'down':
+            send_json['status'] = True
+            try:
+                name = service.GetRoomAvatar(msg['room']['rid'])
+                if name is None:
+                    name = 'room_default.png'
+                path = config.FILE_DIR + name
+                with open(path, 'rb') as f:
+                    data_bytes = f.read()
+                send_json['length'] = len(data_bytes)
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+                self.sendall(data_bytes)
+                self.sendall(b'\n')
+            except Exception as e:
+                send_json['status'] = False
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+                return
+
+    def handle_detail_badge(self, msg):
+        send_json = msg
+        service = DCModelService(get_db_conn())
+        if msg['updown'] == 'down':
+            send_json['status'] = True
+            badges = service.GetBadge(msg['did'])
+            badge = badges[0] if len(badges) > 0 else None
+            if badge == None:
+                send_json['status'] = False
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+            else:
+                with open(config.FILE_DIR + badge, 'rb') as f:
+                    data_bytes = f.read()
+                send_json['length'] = len(data_bytes)
+                self.sendall(min_json_dumps_to_bytes(send_json) + b'\n')
+                self.sendall(data_bytes)
+                self.sendall(b'\n')
+
+    def handle_detail_chat(self, msg, data_bytes=None):
+        send_json = msg
+        if msg['updown'] == 'up':
+            self.server_socket.chat_file(msg, self.driver, data_bytes)
 
     @auth
     def handle_type_chat(self, msg):
-        pass
+        self.server_socket.chat(msg, self.driver)
 
     def handle_one_msg(self, msg):
-        logging.warn("handle one msg start")
+        # logging.info('msg queue: {}'.format(json.dumps([item if not isinstance(item, bytes) else 'bytes' for item in self.msg_queue])))
+        # logging.info(msg)
         if msg['type'] == 'sys':
             self.handle_type_sys(msg)
         elif msg['type'] == 'chat':
             self.handle_type_chat(msg)
         elif msg['type'] == 'file':
             self.handle_type_file(msg)
-        logging.warn("handle one msg end")
         
 class DCRequestHandler(socketserver.BaseRequestHandler):
     def handle(self):
-        self.server.clients.append(DCTCPSocket(self.request))
+        self.server.clients.append(DCTCPSocket(self.request, self.server))
 
 class DCTCPServer(socketserver.TCPServer):
     """
@@ -215,17 +495,72 @@ class DCTCPServer(socketserver.TCPServer):
             client = self.clients[i]
             if client.driver == None:
                 will_del_index.append(i)
+                continue
             try:
                 client.send(data)
             except Exception as e:
-                logging.warning(e)
+                logging.warning(str(e))
                 logging.warning("Send error in {}".format(json.dumps(client.driver, indent=4)))
+                client.driver = None
 
         # delete
         for index in reversed(will_del_index):
             del self.clients[index]
 
+    def send_clients(self, data, clients_list):
+        for sock in clients_list:
+            try:
+                sock.send(data)
+            except Exception as e:
+                logging.warn(str(e))
+                continue
+
     def send_loop(self):
+        send_json = {
+            'type': 'sys',
+            'detail': 'check alive'
+        }
         while True:
-            time.sleep(1)
-            # self.send_all(b"testing\n")
+            # self.send_all(min_json_dumps_to_bytes(send_json) + b'\n')
+            time.sleep(5)
+
+    def get_room_clients(self, rid):
+        send_list = []
+        for c in self.clients:
+            if c.driver and 'room' in c.driver and rid in c.driver['room']:
+                send_list.append(c)
+        return send_list
+
+    def chat_file(self, recv_json, from_driver, data_bytes):
+        rid = int(recv_json['to'])
+        # build json
+        data = {
+            'type': 'file',
+            'format': 'image',
+            'detail': 'chat',
+            'room': {
+                'rid': rid
+            },
+            'from': from_driver['did'],
+            'length': len(data_bytes)
+        }
+        send_list = self.get_room_clients(rid)
+        logging.info(send_list)
+        for client in send_list:
+            client.sendall(min_json_dumps_to_bytes(data) + b'\n')
+            client.sendall(data_bytes)
+            client.sendall(b'\n')
+        # return self.send_clients(min_json_dumps_to_bytes(data) + b'\n' + data_bytes + b'\n', send_list)
+
+    def chat(self, recv_json, from_driver):
+        rid = int(recv_json['to'])
+        # build json
+        data = {
+            'type': 'chat',
+            'msg': recv_json['msg'],
+            'to': rid,
+            'from': from_driver['did']
+        }
+        send_list = self.get_room_clients(rid)
+        logging.info(send_list)
+        return self.send_clients(min_json_dumps_to_bytes(data) + b'\n', send_list)

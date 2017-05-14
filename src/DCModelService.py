@@ -3,17 +3,20 @@
 import pymysql
 import hashlib
 import config
+import json
 
 class DCModelService:
     def __init__(self, conn):
         self.conn = conn
 
     def SearchDriverWithDid(self, did):
-        sql = "select * from Driver where did = ?"
+        sql = "select * from Driver where did = %s"
+        driver = None
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute(sql, (did))
                 driver = cursor.fetchone()
+            self.conn.commit()
         except Exception as e:
             print(str(e))
 
@@ -21,10 +24,12 @@ class DCModelService:
 
     def SearchDriverWithUsername(self, username):
         sql = "select * from Driver where username = %s"
+        driver = None
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute(sql, (username))
                 driver = cursor.fetchone()
+            self.conn.commit()
         except Exception as e:
             print(str(e))
 
@@ -38,7 +43,7 @@ class DCModelService:
                 cursor.execute(search_dup_sql, username)
                 count = cursor.rowcount
             if count > 0:
-                raise Exception("重复的用户名")
+                raise Exception("Duplicated username")
 
             password = password.encode('utf-8') + config.DRIVER_SALT
             password = hashlib.sha256(password).hexdigest()
@@ -50,6 +55,81 @@ class DCModelService:
             print(str(e))
             return {'status': False, 'msg': str(e)}
         return {'status': True, 'did': lastrowid}
+
+    def ListRooms(self):
+        sql = "select * from Room"
+        rooms = []
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute(sql)
+                rooms = cursor.fetchall()
+                self.conn.commit()
+        except Exception as e:
+            print(str(e))
+            return []
+        return rooms
+
+    def SetAvatar(self, did, name):
+        sql = "update Driver set avatar = %s where did = %s"
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute(sql, (name, did))
+                self.conn.commit()
+            return True
+        except Exception as e:
+            print(str(e))
+            return False
+
+    def GetAvatar(self, did):
+        sql = "select avatar from Driver where did = %s"
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute(sql, (did))
+                name = cursor.fetchone()['avatar']
+            return name
+            self.conn.commit()
+        except Exception as e:
+            print(str(e))
+            return None
+
+    def SetRoomAvatar(self, rid, name):
+        sql = "update Room set avatar = %s where rid = %s"
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute(sql, (name, rid))
+                self.conn.commit()
+            return True
+        except Exception as e:
+            print(str(e))
+            return False
+
+    def GetRoomAvatar(self, rid):
+        sql = "select avatar from Room where rid = %s"
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute(sql, (rid))
+                name = cursor.fetchone()['avatar']
+                self.conn.commit()
+            return name
+        except Exception as e:
+            print(str(e))
+            return None
+
+    def GetBadge(self, did):
+        sql = "select badge from Driver where did = %s"
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute(sql, (did))
+                badge_json = cursor.fetchone()['badge']
+                self.conn.commit()
+            if badge_json is not None:
+                badge = json.loads(badge_json)
+                return badge
+            else:
+                return None
+        except Exception as e:
+            print(str(e))
+            return None
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.conn.close()
