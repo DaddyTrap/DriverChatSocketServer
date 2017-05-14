@@ -217,6 +217,8 @@ class DCTCPSocket(BaseDCTCPSocket):
                 del driver['password']
                 del driver['created_at']
                 del driver['avatar']
+                if driver['badge'] is None:
+                    driver['badge'] = "1"
                 drivers.append(driver)
         send_json = {
             'type': 'sys',
